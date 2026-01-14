@@ -18,6 +18,7 @@ import System.Directory
 import WebCoverage.Types
 import WebCoverage.DumpcasesParser
 import WebCoverage.V8Runner
+import WebCoverage.PlaywrightRunner
 import WebCoverage.SourceMapper
 import WebCoverage.JSFunctionParser
 
@@ -207,8 +208,8 @@ runTestsWithWebCoverage projectDir testModules timeout = do
 
           let funcs = parseDumpcases dumpContent
 
-          -- Collect V8 coverage
-          v8Result <- collectV8Coverage jsPath timeout
+          -- Collect coverage via Playwright (browser-based)
+          v8Result <- runDomTestCoverage jsPath
 
           case v8Result of
             Left _ => do

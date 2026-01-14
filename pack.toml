@@ -6,6 +6,11 @@ type   = "local"
 path   = "/Users/bob/code/idris2-coverage-core"
 ipkg   = "idris2-coverage-core.ipkg"
 
+[custom.all.idris2playwright]
+type   = "local"
+path   = "/Users/bob/code/idris2-playwright"
+ipkg   = "idris2-playwright.ipkg"
+
 [custom.all.idris2-web-coverage]
 type   = "local"
 path   = "."
