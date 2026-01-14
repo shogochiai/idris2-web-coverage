@@ -285,22 +285,36 @@ runTestsWithWebCoverage projectDir testModules timeout = do
                 (min executed (length fc.cases))
          ) funcs
 
-    -- | Convert Idris function name to JS pattern
-    -- "Module.Name.func" -> "Module_Name_func"
-    idrisNameToJSPattern : String -> String
-    idrisNameToJSPattern name =
-      pack $ map (\c => if c == '.' then '_' else c) (unpack name)
+    -- | Convert Idris function name to JS mangled name (like chezMangle for JS)
+    -- Idris2 JS codegen: "Module.Name.func" -> "Module_Name_func"
+    -- Special chars are encoded: '-' -> '$_', ':' -> '$c'
+    jsMangle : String -> String
+    jsMangle name =
+      let chars = unpack name
+      in pack $ concatMap encodeChar chars
+      where
+        encodeChar : Char -> List Char
+        encodeChar '.' = ['_']
+        encodeChar '-' = ['$', '_']
+        encodeChar ':' = ['$', 'c']
+        encodeChar '\'' = ['$', 'p']
+        encodeChar c = [c]
 
     -- | Find matching JS function for an Idris function
+    -- Priority: 1) Exact idrisName match, 2) Mangled name match, 3) Suffix match
     findJSFunc : String -> List JSFunctionDef -> Maybe JSFunctionDef
     findJSFunc idrisName jsFuncs =
-      -- Try exact match first
+      -- Try exact idrisName match first
       case find (\jf => jf.idrisName == idrisName) jsFuncs of
         Just f => Just f
         Nothing =>
-          -- Try pattern match (convert dots to underscores)
-          let jsPattern = idrisNameToJSPattern idrisName
-          in find (\jf => isInfixOf jsPattern jf.jsName) jsFuncs
+          let mangledName = jsMangle idrisName
+          in -- Try exact mangled name match
+             case find (\jf => jf.jsName == mangledName) jsFuncs of
+               Just f => Just f
+               Nothing =>
+                 -- Try suffix match (handles prefixed names like "n--")
+                 find (\jf => isSuffixOf mangledName jf.jsName) jsFuncs
 
     -- | Count V8 ranges that overlap with a JS function's byte range
     countRangesInFunc : JSFunctionDef -> List V8Range -> (Nat, Nat)
@@ -314,27 +328,36 @@ runTestsWithWebCoverage projectDir testModules timeout = do
     -- | Function-level coverage matching using JS function parser
     -- Parses JS file to find Idris function definitions, then matches
     -- V8 coverage ranges to specific functions.
+    -- For unmatched functions, uses global byte coverage ratio as fallback.
     matchFuncsWithV8AndJS : List FuncCases -> V8ScriptCoverage -> String -> List WebFunctionHit
     matchFuncsWithV8AndJS funcs v8Cov jsCode =
       let -- Parse JS functions from the generated code
           jsFuncs = parseJSFunctions jsCode
           -- Get all V8 ranges
           allRanges = concatMap (.ranges) v8Cov.functions
-      in map (\fc => matchSingleFunc fc jsFuncs allRanges) funcs
+          -- Calculate global byte coverage ratio for fallback
+          globalExecBytes = calcExecutedBytes v8Cov
+          globalTotalBytes = calcTotalBytes v8Cov
+          globalRatio = if globalTotalBytes == 0 then 0.0
+                        else min 1.0 (cast globalExecBytes / cast globalTotalBytes)
+      in map (\fc => matchSingleFunc fc jsFuncs allRanges globalRatio) funcs
       where
-        matchSingleFunc : FuncCases -> List JSFunctionDef -> List V8Range -> WebFunctionHit
-        matchSingleFunc fc jsFuncs ranges =
+        matchSingleFunc : FuncCases -> List JSFunctionDef -> List V8Range -> Double -> WebFunctionHit
+        matchSingleFunc fc jsFuncs ranges fallbackRatio =
           case findJSFunc fc.funcName jsFuncs of
             Nothing =>
-              -- No JS function found, report 0 coverage
-              MkWebFunctionHit fc.funcName fc.funcName
-                fc.totalBranches 0 (length fc.cases) 0
+              -- No JS function found, use global byte coverage ratio
+              let rawExec = cast fc.totalBranches * fallbackRatio
+                  executed = cast {to=Nat} (max 0 (cast {to=Int} (rawExec + 0.5)))
+              in MkWebFunctionHit fc.funcName fc.funcName
+                   fc.totalBranches executed (length fc.cases)
+                   (min executed (length fc.cases))
             Just jf =>
               let execAndTotal = countRangesInFunc jf ranges
                   rangeExec = fst execAndTotal
                   rangeTot = snd execAndTotal
                   -- Calculate coverage ratio for this function
-                  funcRatio = if rangeTot == 0 then 0.0
+                  funcRatio = if rangeTot == 0 then fallbackRatio  -- use fallback if no ranges
                               else cast rangeExec / cast rangeTot
                   -- Apply ratio to canonical branches
                   rawExec = cast fc.totalBranches * funcRatio

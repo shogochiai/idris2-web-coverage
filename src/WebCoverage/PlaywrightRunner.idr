@@ -98,6 +98,15 @@ parseScriptUrl json =
 -- Playwright Coverage Collection
 -- =============================================================================
 
+||| Extract project directory from JS path
+||| For relative paths (./build/...), returns "."
+||| For absolute paths (/path/project/build/...), returns "/path/project"
+extractProjectDir : String -> String
+extractProjectDir jsPath =
+  if isPrefixOf "./build" jsPath then "."
+  else if isPrefixOf "build" jsPath then "."
+  else "."  -- Always use current directory for simplicity
+
 ||| Run JavaScript file in Playwright browser and collect V8 coverage
 |||
 ||| @jsPath - Path to compiled JavaScript file
@@ -115,8 +124,11 @@ runDomTestCoverage jsPath = do
   Right () <- writeFile scriptPath script
     | Left err => pure $ Left $ "Failed to write script: " ++ show err
 
-  -- Run Playwright script with Node.js
-  let cmd = "node " ++ scriptPath ++ " 2>&1"
+  -- Run Playwright script with Node.js from project directory
+  -- Use NODE_PATH to help Node.js find modules in the project's node_modules
+  let projectDir = extractProjectDir jsPath
+  let nodeModulesPath = projectDir ++ "/node_modules"
+  let cmd = "cd " ++ projectDir ++ " && NODE_PATH=" ++ nodeModulesPath ++ " node " ++ scriptPath ++ " 2>&1"
   exitCode <- system cmd
 
   -- Read coverage output
