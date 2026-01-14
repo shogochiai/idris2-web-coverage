@@ -22,6 +22,10 @@ import WebCoverage.PlaywrightRunner
 import WebCoverage.SourceMapper
 import WebCoverage.JSFunctionParser
 
+-- idris2-coverage-core classification
+import Coverage.Classification.BranchClass
+import Coverage.Core.Exclusions
+
 %default covering
 
 -- =============================================================================
@@ -206,7 +210,9 @@ runTestsWithWebCoverage projectDir testModules timeout = do
                 cleanupTempFiles [tempIdrPath, tempIpkgPath, dumpcasesPath]
                 pure $ Left "Failed to read dumpcases"
 
-          let funcs = parseDumpcases dumpContent
+          let allFuncs = parseDumpcases dumpContent
+          -- Filter to user functions using idris2-coverage-core exclusions
+          let funcs = filterUserFuncs allFuncs
 
           -- Collect coverage via Playwright (browser-based)
           v8Result <- runDomTestCoverage jsPath
@@ -231,6 +237,15 @@ runTestsWithWebCoverage projectDir testModules timeout = do
               cleanupTempFiles [tempIdrPath, tempIpkgPath, dumpcasesPath]
               pure $ Right hits
   where
+    -- | Check if function should be excluded from coverage (using idris2-coverage-core)
+    isExcludedFunc : String -> Bool
+    isExcludedFunc name = shouldExcludeFunctionName name
+                       || isExcludedReason (determineExclusionReason defaultExclusions name)
+
+    -- | Filter to user functions only (exclude Prelude, prim__, {csegen:*}, etc.)
+    filterUserFuncs : List FuncCases -> List FuncCases
+    filterUserFuncs = filter (\fc => not (isExcludedFunc fc.funcName))
+
     funcToHit : FuncCases -> WebFunctionHit
     funcToHit fc = MkWebFunctionHit fc.funcName fc.funcName
                      fc.totalBranches 0 (length fc.cases) 0
