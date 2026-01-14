@@ -3,7 +3,7 @@ version = 0.1.0
 
 sourcedir = "src"
 
-depends = base, contrib, idris2-coverage-core, idris2playwright
+depends = base, contrib, idris2-coverage-core
 
 modules = WebCoverage.Types
         , WebCoverage.DumpcasesParser

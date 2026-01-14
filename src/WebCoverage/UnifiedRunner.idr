@@ -52,10 +52,10 @@ joinStrings sep [] = ""
 joinStrings sep [x] = x
 joinStrings sep (x :: xs) = x ++ sep ++ joinStrings sep xs
 
-||| Generate temporary .ipkg file for Node.js with source map
+||| Generate temporary .ipkg file for browser JavaScript with source map
 |||
 ||| Key options:
-|||   - --cg node (Node.js code generator)
+|||   - --cg javascript (Browser code generator for Playwright)
 |||   - --directive sourcemap (generate source map)
 |||   - --dumpcases (for static analysis)
 generateTempIpkg : String -> String -> List String -> String
@@ -63,8 +63,8 @@ generateTempIpkg : String -> String -> List String -> String
 generateTempIpkg pkgName mainMod modules execName depends sourcedir dumpcasesPath =
   let allDepends = "base, contrib" ++
         (if null depends then "" else ", " ++ joinStrings ", " depends)
-      -- Enable source map generation and dumpcases
-      optsLine = "opts = \"--cg node --directive sourcemap --dumpcases " ++
+      -- Enable source map generation and dumpcases (browser JS for Playwright)
+      optsLine = "opts = \"--cg javascript --directive sourcemap --dumpcases " ++
                  dumpcasesPath ++ "\""
   in unlines
     [ "package " ++ pkgName
