@@ -237,10 +237,21 @@ runTestsWithWebCoverage projectDir testModules timeout = do
               cleanupTempFiles [tempIdrPath, tempIpkgPath, dumpcasesPath]
               pure $ Right hits
   where
+    -- | Check if function is from dom-mvc libraries (idris2-dom, idris2-dom-mvc)
+    isDomMvcLibraryFunc : String -> Bool
+    isDomMvcLibraryFunc name =
+         isPrefixOf "Text.HTML." name
+      || isPrefixOf "Web.MVC." name
+      || isPrefixOf "JS." name
+      || isPrefixOf "Control.Monad.Dom." name
+      || isPrefixOf "Text.CSS." name
+      || isPrefixOf "Web.Raw." name
+
     -- | Check if function should be excluded from coverage (using idris2-coverage-core)
     isExcludedFunc : String -> Bool
     isExcludedFunc name = shouldExcludeFunctionName name
                        || isExcludedReason (determineExclusionReason defaultExclusions name)
+                       || isDomMvcLibraryFunc name
 
     -- | Filter to user functions only (exclude Prelude, prim__, {csegen:*}, etc.)
     filterUserFuncs : List FuncCases -> List FuncCases
