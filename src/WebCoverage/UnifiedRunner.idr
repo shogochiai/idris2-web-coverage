@@ -196,8 +196,25 @@ runTestsWithWebCoverage projectDir testModules timeout = do
             removeFileIfExists tempIdrPath
             pure $ Left $ "Failed to write temp ipkg: " ++ show err
 
-      -- Build with pack
-      let buildCmd = "cd " ++ projectDir ++ " && pack build " ++ tempExecName ++ ".ipkg 2>&1"
+      -- Build with idris2 directly (pack ignores ipkg opts field)
+      -- First install dependencies via pack, then build with idris2
+      let installCmd = "cd " ++ projectDir ++ " && pack install-deps " ++ tempExecName ++ ".ipkg 2>&1"
+      _ <- system installCmd
+      -- Clear build cache for temp module to force recompilation with opts
+      let clearCmd = "rm -rf " ++ projectDir ++ "/build/ttc/*/TempWebRunner_* 2>/dev/null; true"
+      _ <- system clearCmd
+      -- NOTE: Using `idris2-sm` instead of `idris2` for source map support with --cg javascript
+      --
+      -- Background:
+      --   - Standard idris2 (as of 2025-01) only supports source maps for --cg node, not --cg javascript
+      --   - The feature/es-source-maps branch adds source map support for --cg javascript (browser JS)
+      --   - `idris2-sm` is a wrapper pointing to the locally installed feature branch version
+      --
+      -- When to change back to `idris2`:
+      --   - After PR https://github.com/idris-lang/Idris2/pull/XXXX is merged
+      --   - Or when Idris2 releases a version with --cg javascript source map support
+      --   - At that point, simply change `idris2-sm` back to `idris2` for portability
+      let buildCmd = "cd " ++ projectDir ++ " && idris2-sm --build " ++ tempExecName ++ ".ipkg 2>&1"
       buildResult <- system buildCmd
       if buildResult /= 0
         then do
@@ -247,11 +264,17 @@ runTestsWithWebCoverage projectDir testModules timeout = do
       || isPrefixOf "Text.CSS." name
       || isPrefixOf "Web.Raw." name
 
+    -- | Check if function is a test function
+    isTestFunc : String -> Bool
+    isTestFunc name = isInfixOf ".Tests." name || isInfixOf "Test." name
+                   || isPrefixOf "test_" name
+
     -- | Check if function should be excluded from coverage (using idris2-coverage-core)
     isExcludedFunc : String -> Bool
     isExcludedFunc name = shouldExcludeFunctionName name
                        || isExcludedReason (determineExclusionReason defaultExclusions name)
                        || isDomMvcLibraryFunc name
+                       || isTestFunc name
 
     -- | Filter to user functions only (exclude Prelude, prim__, {csegen:*}, etc.)
     filterUserFuncs : List FuncCases -> List FuncCases

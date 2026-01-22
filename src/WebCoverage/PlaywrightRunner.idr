@@ -114,6 +114,7 @@ extractProjectDir jsPath =
 export
 runDomTestCoverage : (jsPath : String) -> IO (Either String V8ScriptCoverage)
 runDomTestCoverage jsPath = do
+  putStrLn "    [Playwright] Starting browser coverage collection..."
   -- Generate unique ID for temp files
   uid <- getUniqueId
   let scriptPath = "/tmp/playwright_cov_" ++ uid ++ ".js"
