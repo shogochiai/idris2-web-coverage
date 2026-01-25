@@ -107,6 +107,48 @@ extractProjectDir jsPath =
   else if isPrefixOf "build" jsPath then "."
   else "."  -- Always use current directory for simplicity
 
+||| Get global node_modules path via `npm root -g`
+getGlobalNodeModules : IO (Maybe String)
+getGlobalNodeModules = do
+  Right h <- popen "npm root -g 2>/dev/null" Read
+    | Left _ => pure Nothing
+  Right line <- fGetLine h
+    | Left _ => do _ <- pclose h; pure Nothing
+  _ <- pclose h
+  let path = trim line
+  if length path > 0
+    then pure $ Just path
+    else pure Nothing
+
+||| Check if Playwright is installed (globally or via npx)
+checkPlaywrightInstalled : IO (Either String String)
+checkPlaywrightInstalled = do
+  -- Try global playwright first
+  Right h1 <- popen "which playwright 2>/dev/null" Read
+    | Left _ => checkNpx
+  Right line <- fGetLine h1
+    | Left _ => do _ <- pclose h1; checkNpx
+  _ <- pclose h1
+  if length (trim line) > 0
+    then pure $ Right "global"
+    else checkNpx
+  where
+    checkNpx : IO (Either String String)
+    checkNpx = do
+      -- Check if npx can find playwright
+      code <- System.system "npx playwright --version >/dev/null 2>&1"
+      if code == 0
+        then pure $ Right "npx"
+        else pure $ Left $ unlines
+          [ "Playwright not found. Install it with:"
+          , "  npm install -g playwright"
+          , "  npx playwright install chromium"
+          , ""
+          , "Or for project-local installation:"
+          , "  npm install playwright"
+          , "  npx playwright install chromium"
+          ]
+
 ||| Run JavaScript file in Playwright browser and collect V8 coverage
 |||
 ||| @jsPath - Path to compiled JavaScript file
@@ -115,6 +157,11 @@ export
 runDomTestCoverage : (jsPath : String) -> IO (Either String V8ScriptCoverage)
 runDomTestCoverage jsPath = do
   putStrLn "    [Playwright] Starting browser coverage collection..."
+
+  -- Check Playwright installation first
+  Right installType <- checkPlaywrightInstalled
+    | Left err => pure $ Left err
+
   -- Generate unique ID for temp files
   uid <- getUniqueId
   let scriptPath = "/tmp/playwright_cov_" ++ uid ++ ".js"
@@ -125,11 +172,13 @@ runDomTestCoverage jsPath = do
   Right () <- writeFile scriptPath script
     | Left err => pure $ Left $ "Failed to write script: " ++ show err
 
-  -- Run Playwright script with Node.js from project directory
-  -- Use NODE_PATH to help Node.js find modules in the project's node_modules
-  let projectDir = extractProjectDir jsPath
-  let nodeModulesPath = projectDir ++ "/node_modules"
-  let cmd = "cd " ++ projectDir ++ " && NODE_PATH=" ++ nodeModulesPath ++ " node " ++ scriptPath ++ " 2>&1"
+  -- Run Playwright script with Node.js
+  -- Set NODE_PATH to include global node_modules for require('playwright')
+  globalNodeModules <- getGlobalNodeModules
+  let nodePathEnv = case globalNodeModules of
+                      Just p  => "NODE_PATH=" ++ p ++ " "
+                      Nothing => ""
+  let cmd = nodePathEnv ++ "node " ++ scriptPath ++ " 2>&1"
   exitCode <- system cmd
 
   -- Read coverage output
